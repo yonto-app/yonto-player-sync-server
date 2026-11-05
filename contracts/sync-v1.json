@@ -1,0 +1,428 @@
+{
+    "format": "yonto-sync-v1",
+    "sync_key_base64url": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "generation": 1,
+    "derived": {
+        "records_key_hex": "4164b834d5187bece8d6cc172cb7163a16d7d6a1d054b62a99c21ade1763ca7a",
+        "ids_key_hex": "3412c89c573cf6bc002a25f736db7528ba6da972c0e3b9c5f1cae1652232cc18",
+        "auth_base64url": "6RjK9uZ-gdLvc6jo7gs-x1bgm0tXkyRgjuVKLnH_Dhs",
+        "verifier_hex": "9cc64175b8db565557801417419475e874d4168bbe3cfcd49756abd9e58388ba"
+    },
+    "ids": [
+        {
+            "kind": "history",
+            "key": "3f9c2a7b1e04::movie-42",
+            "id": "25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787"
+        },
+        {
+            "kind": "watchlist",
+            "key": "3f9c2a7b1e04::movie-42",
+            "id": "f8c1bf96e0217d241f017b7ea108e47088be7742b67f87a2abb4547500d4a79a"
+        },
+        {
+            "kind": "device",
+            "key": "a1b2c3d4e5f6",
+            "id": "578482248e05e54ef1378feeb72ee076493175294f0845e36993453d40ce474c"
+        }
+    ],
+    "records": [
+        {
+            "name": "a history entry under its source",
+            "plaintext": "{\"kind\":\"history\",\"key\":\"3f9c2a7b1e04::movie-42\",\"v\":1,\"parent\":{\"kind\":\"source\",\"key\":\"3f9c2a7b1e04\"},\"payload\":{\"title\":\"Big Buck Bunny\",\"type\":\"MOVIE\",\"year\":2008,\"lastWatchedAtMillis\":1761600000000}}",
+            "aad": "yonto-sync-v1|record|25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787|1|1761600000000.0.a1b2c3d4e5f6|0|0",
+            "iv_hex": "a0a1a2a3a4a5a6a7a8a9aaab",
+            "wire": {
+                "id": "25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761600000000,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": false,
+                "kept": false,
+                "sealed": "oKGio6SlpqeoqaqrsqE-_AyF3k2GALGmEgnkaw2LY1pOLe2VB40TcBcS6gDYwi2SMQblI01A0XQiBKz8Svjxib54ZgOnnR3eA5CM7BUYQAw-dz-6xssH1IGMtMQIOXrqgzpShMkkNCD24lGTh649VvG8FXIdczW_6CM_TmqiudhyJGemeEj-qg4eWHhfp1lRu6DBw8Kj8UlaP8ai2r719jytLNS2QSlqAIX6ZzJpM20wub4vGa13l0DXg_IB4XlhE_kitITQdjj3p8p-Pyx0nfj_HAicbWDKv7J0oL0L4gYV0taph7hm"
+            },
+            "record": {
+                "kind": "history",
+                "key": "3f9c2a7b1e04::movie-42",
+                "v": 1,
+                "parent": {
+                    "kind": "source",
+                    "key": "3f9c2a7b1e04"
+                },
+                "payload": {
+                    "title": "Big Buck Bunny",
+                    "type": "MOVIE",
+                    "year": 2008,
+                    "lastWatchedAtMillis": 1761600000000
+                },
+                "stamp": {
+                    "millis": 1761600000000,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                }
+            }
+        },
+        {
+            "name": "a resume position",
+            "plaintext": "{\"kind\":\"position\",\"key\":\"3f9c2a7b1e04::movie-42::play\",\"v\":1,\"payload\":{\"positionMs\":354000,\"durationMs\":596000,\"finished\":false}}",
+            "aad": "yonto-sync-v1|record|e67c88c473b7be23caf1cd23db63c0998c6aed5f37fa24c6f5d2ffa8177816c6|1|1761600005000.2.a1b2c3d4e5f6|0|0",
+            "iv_hex": "b0b1b2b3b4b5b6b7b8b9babb",
+            "wire": {
+                "id": "e67c88c473b7be23caf1cd23db63c0998c6aed5f37fa24c6f5d2ffa8177816c6",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761600005000,
+                    "counter": 2,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": false,
+                "kept": false,
+                "sealed": "sLGys7S1tre4ubq7ihKVMY5ejBVvexQmA5b2cggDuSw0ap23hu7P3fFZcb5WpM8tX4UMibjGMXXEN6TSMDx41-cuLMDEhng8wXCpkS03WNWTzlWKpsmtdW4b5WK79kJtj3OaVI4NDnYT0EazEtKYkip1SZffBeKlU29j68JbG7_5GKRgKrz9gDQiFuCuggtyXgxoODOkyWnGyuL8eujS"
+            },
+            "record": {
+                "kind": "position",
+                "key": "3f9c2a7b1e04::movie-42::play",
+                "v": 1,
+                "payload": {
+                    "positionMs": 354000,
+                    "durationMs": 596000,
+                    "finished": false
+                },
+                "stamp": {
+                    "millis": 1761600005000,
+                    "counter": 2,
+                    "device": "a1b2c3d4e5f6"
+                }
+            }
+        },
+        {
+            "name": "a source's tombstone, kept for good",
+            "plaintext": "{\"kind\":\"source\",\"key\":\"3f9c2a7b1e04\",\"v\":1,\"payload\":{}}",
+            "aad": "yonto-sync-v1|record|f937a107c46882ee5a369377c37168f8d646f22dc25f5dca30944e971f550f12|1|1761700000000.0.0f1e2d3c4b5a|1|1",
+            "iv_hex": "c0c1c2c3c4c5c6c7c8c9cacb",
+            "wire": {
+                "id": "f937a107c46882ee5a369377c37168f8d646f22dc25f5dca30944e971f550f12",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761700000000,
+                    "counter": 0,
+                    "device": "0f1e2d3c4b5a"
+                },
+                "deleted": true,
+                "kept": true,
+                "sealed": "wMHCw8TFxsfIycrLYeETO-i-qoWAhlXHda0_-H18PU2PK4jg0IW-OtLa8821R4t6p0NEWSOK1b6Q18b81yyiKxl30sNAvBKedBenUajOoYtjGHuRog"
+            },
+            "record": {
+                "kind": "source",
+                "key": "3f9c2a7b1e04",
+                "v": 1,
+                "payload": {},
+                "stamp": {
+                    "millis": 1761700000000,
+                    "counter": 0,
+                    "device": "0f1e2d3c4b5a"
+                }
+            }
+        }
+    ],
+    "refused": [
+        {
+            "name": "a stamp moved later",
+            "wire": {
+                "id": "25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761600000001,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": false,
+                "kept": false,
+                "sealed": "oKGio6SlpqeoqaqrsqE-_AyF3k2GALGmEgnkaw2LY1pOLe2VB40TcBcS6gDYwi2SMQblI01A0XQiBKz8Svjxib54ZgOnnR3eA5CM7BUYQAw-dz-6xssH1IGMtMQIOXrqgzpShMkkNCD24lGTh649VvG8FXIdczW_6CM_TmqiudhyJGemeEj-qg4eWHhfp1lRu6DBw8Kj8UlaP8ai2r719jytLNS2QSlqAIX6ZzJpM20wub4vGa13l0DXg_IB4XlhE_kitITQdjj3p8p-Pyx0nfj_HAicbWDKv7J0oL0L4gYV0taph7hm"
+            }
+        },
+        {
+            "name": "a live record presented as deleted",
+            "wire": {
+                "id": "25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761600000000,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": true,
+                "kept": false,
+                "sealed": "oKGio6SlpqeoqaqrsqE-_AyF3k2GALGmEgnkaw2LY1pOLe2VB40TcBcS6gDYwi2SMQblI01A0XQiBKz8Svjxib54ZgOnnR3eA5CM7BUYQAw-dz-6xssH1IGMtMQIOXrqgzpShMkkNCD24lGTh649VvG8FXIdczW_6CM_TmqiudhyJGemeEj-qg4eWHhfp1lRu6DBw8Kj8UlaP8ai2r719jytLNS2QSlqAIX6ZzJpM20wub4vGa13l0DXg_IB4XlhE_kitITQdjj3p8p-Pyx0nfj_HAicbWDKv7J0oL0L4gYV0taph7hm"
+            }
+        },
+        {
+            "name": "a record presented as kept",
+            "wire": {
+                "id": "25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761600000000,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": false,
+                "kept": true,
+                "sealed": "oKGio6SlpqeoqaqrsqE-_AyF3k2GALGmEgnkaw2LY1pOLe2VB40TcBcS6gDYwi2SMQblI01A0XQiBKz8Svjxib54ZgOnnR3eA5CM7BUYQAw-dz-6xssH1IGMtMQIOXrqgzpShMkkNCD24lGTh649VvG8FXIdczW_6CM_TmqiudhyJGemeEj-qg4eWHhfp1lRu6DBw8Kj8UlaP8ai2r719jytLNS2QSlqAIX6ZzJpM20wub4vGa13l0DXg_IB4XlhE_kitITQdjj3p8p-Pyx0nfj_HAicbWDKv7J0oL0L4gYV0taph7hm"
+            }
+        },
+        {
+            "name": "another generation",
+            "wire": {
+                "id": "25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787",
+                "gen": 2,
+                "stamp": {
+                    "millis": 1761600000000,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": false,
+                "kept": false,
+                "sealed": "oKGio6SlpqeoqaqrsqE-_AyF3k2GALGmEgnkaw2LY1pOLe2VB40TcBcS6gDYwi2SMQblI01A0XQiBKz8Svjxib54ZgOnnR3eA5CM7BUYQAw-dz-6xssH1IGMtMQIOXrqgzpShMkkNCD24lGTh649VvG8FXIdczW_6CM_TmqiudhyJGemeEj-qg4eWHhfp1lRu6DBw8Kj8UlaP8ai2r719jytLNS2QSlqAIX6ZzJpM20wub4vGa13l0DXg_IB4XlhE_kitITQdjj3p8p-Pyx0nfj_HAicbWDKv7J0oL0L4gYV0taph7hm"
+            }
+        },
+        {
+            "name": "another record's id",
+            "wire": {
+                "id": "e67c88c473b7be23caf1cd23db63c0998c6aed5f37fa24c6f5d2ffa8177816c6",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761600000000,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": false,
+                "kept": false,
+                "sealed": "oKGio6SlpqeoqaqrsqE-_AyF3k2GALGmEgnkaw2LY1pOLe2VB40TcBcS6gDYwi2SMQblI01A0XQiBKz8Svjxib54ZgOnnR3eA5CM7BUYQAw-dz-6xssH1IGMtMQIOXrqgzpShMkkNCD24lGTh649VvG8FXIdczW_6CM_TmqiudhyJGemeEj-qg4eWHhfp1lRu6DBw8Kj8UlaP8ai2r719jytLNS2QSlqAIX6ZzJpM20wub4vGa13l0DXg_IB4XlhE_kitITQdjj3p8p-Pyx0nfj_HAicbWDKv7J0oL0L4gYV0taph7hm"
+            }
+        },
+        {
+            "name": "a tampered tag",
+            "wire": {
+                "id": "25162e8fee2c374ee3941915e5e00bf4a65283e8f0be78776638e052ce7a0787",
+                "gen": 1,
+                "stamp": {
+                    "millis": 1761600000000,
+                    "counter": 0,
+                    "device": "a1b2c3d4e5f6"
+                },
+                "deleted": false,
+                "kept": false,
+                "sealed": "oKGio6SlpqeoqaqrsqE-_AyF3k2GALGmEgnkaw2LY1pOLe2VB40TcBcS6gDYwi2SMQblI01A0XQiBKz8Svjxib54ZgOnnR3eA5CM7BUYQAw-dz-6xssH1IGMtMQIOXrqgzpShMkkNCD24lGTh649VvG8FXIdczW_6CM_TmqiudhyJGemeEj-qg4eWHhfp1lRu6DBw8Kj8UlaP8ai2r719jytLNS2QSlqAIX6ZzJpM20wub4vGa13l0DXg_IB4XlhE_kitITQdjj3p8p-Pyx0nfj_HAicbWDKv7J0oL0L4gYV0taph7hn"
+            }
+        }
+    ],
+    "wrap": {
+        "joining": {
+            "private_hex": "1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30",
+            "public_base64url": "BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ"
+        },
+        "allowing": {
+            "private_hex": "5152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f70",
+            "public_base64url": "BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4"
+        },
+        "shared_hex": "fb56dfa8f8c14af4c5a40a94eb4ac3cb71661022739fb458a7b02c2e1a55d697",
+        "key_hex": "20bd2140ba683a78083e0326622961fb246718b96165cb05d3cf0e265d3492b6",
+        "aad": "yonto-sync-v1|wrap|BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4|BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ",
+        "iv_hex": "d0d1d2d3d4d5d6d7d8d9dadb",
+        "plaintext": "{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\",\"generation\":1,\"server\":{\"kind\":\"own\",\"address\":\"https://sync.example.net\"}}",
+        "wire": {
+            "from": "BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4",
+            "sealed": "0NHS09TV1tfY2drbSAaLfnMXZeNe2FXwjFafWrEpLLwG62Loh8Ik8fcMSZuXnqqRO_wazvalPTm1wrPExcfyOqaSX1eJTZqJAUJ28COUSINdqZmO1A5vOMETP-7KAKnXjnVi-Mkx-NZj2w3Sy3shULI2jcBTckQcRQrdwojCz4nukyfKJjmGCmT_1OzJdReZ2w9Nmoe1Z8CvzZxdcg"
+        }
+    },
+    "signing": {
+        "private_hex": "3132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f50",
+        "public_base64url": "BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY"
+    },
+    "nonces": {
+        "joining_base64url": "ISIjJCUmJygpKissLS4vMA",
+        "allowing_base64url": "YWJjZGVmZ2hpamtsbW5vcA"
+    },
+    "commitment": "b5a8658740edb0b7f0f5d16042650b39fcd7096d5becbebe277d816590937baa",
+    "device_secret": {
+        "secret_base64url": "kJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq8",
+        "hash_hex": "2fbbda77576b2760b5856621fecfbdff45828fed7dacd206ed9615e4e9de8d82"
+    },
+    "match_code": "394430",
+    "device_record": {
+        "device": "a1b2c3d4e5f6",
+        "stamp": {
+            "millis": 1761600000000,
+            "counter": 2,
+            "device": "a1b2c3d4e5f6"
+        },
+        "message": "yonto-sync-v1|device|a1b2c3d4e5f6|1761600000000.2.a1b2c3d4e5f6|{\"name\":\"Living room TV\",\"platform\":\"android-tv\",\"publicKey\":\"BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ\",\"signingKey\":\"BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY\",\"generation\":1,\"allowed\":[\"BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4\"],\"futureField\":{\"kept\":true}}",
+        "payload": {
+            "signed": "{\"name\":\"Living room TV\",\"platform\":\"android-tv\",\"publicKey\":\"BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ\",\"signingKey\":\"BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY\",\"generation\":1,\"allowed\":[\"BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4\"],\"futureField\":{\"kept\":true}}",
+            "signature": "MEUCIQD-7xZQqNyCtosNkj6os4nGSZ35t42A0WxpAQDmIuANygIgDb2OnOsCKSN1vCFlfEJn7XQdObIQV8kFvXKw5B_94ik"
+        }
+    },
+    "device_record_refused": [
+        {
+            "name": "a later stamp",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 3,
+                "device": "a1b2c3d4e5f6"
+            },
+            "payload": {
+                "signed": "{\"name\":\"Living room TV\",\"platform\":\"android-tv\",\"publicKey\":\"BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ\",\"signingKey\":\"BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY\",\"generation\":1,\"allowed\":[\"BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4\"],\"futureField\":{\"kept\":true}}",
+                "signature": "MEUCIQD-7xZQqNyCtosNkj6os4nGSZ35t42A0WxpAQDmIuANygIgDb2OnOsCKSN1vCFlfEJn7XQdObIQV8kFvXKw5B_94ik"
+            }
+        },
+        {
+            "name": "another device's id",
+            "device": "0f1e2d3c4b5a",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 2,
+                "device": "0f1e2d3c4b5a"
+            },
+            "payload": {
+                "signed": "{\"name\":\"Living room TV\",\"platform\":\"android-tv\",\"publicKey\":\"BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ\",\"signingKey\":\"BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY\",\"generation\":1,\"allowed\":[\"BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4\"],\"futureField\":{\"kept\":true}}",
+                "signature": "MEUCIQD-7xZQqNyCtosNkj6os4nGSZ35t42A0WxpAQDmIuANygIgDb2OnOsCKSN1vCFlfEJn7XQdObIQV8kFvXKw5B_94ik"
+            }
+        },
+        {
+            "name": "the signed text changed",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 2,
+                "device": "a1b2c3d4e5f6"
+            },
+            "payload": {
+                "signed": "{\"name\":\"Kitchen TV\",\"platform\":\"android-tv\",\"publicKey\":\"BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ\",\"signingKey\":\"BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY\",\"generation\":1,\"allowed\":[\"BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4\"],\"futureField\":{\"kept\":true}}",
+                "signature": "MEUCIQD-7xZQqNyCtosNkj6os4nGSZ35t42A0WxpAQDmIuANygIgDb2OnOsCKSN1vCFlfEJn7XQdObIQV8kFvXKw5B_94ik"
+            }
+        },
+        {
+            "name": "stamped by another device",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 2,
+                "device": "0f1e2d3c4b5a"
+            },
+            "payload": {
+                "signed": "{\"name\":\"Living room TV\",\"platform\":\"android-tv\",\"publicKey\":\"BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ\",\"signingKey\":\"BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY\",\"generation\":1,\"allowed\":[\"BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4\"],\"futureField\":{\"kept\":true}}",
+                "signature": "MEUCIQCYbgKrAeLw3bD0-lncsYUQ-xWi-XffTFT8sqf1dMMS_QIgQT7pyguHNTT7xvU7LLuagH0L8q5VteoTMdeywzfUrCg"
+            }
+        },
+        {
+            "name": "no signature",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 2,
+                "device": "a1b2c3d4e5f6"
+            },
+            "payload": {
+                "signed": "{\"name\":\"Living room TV\",\"platform\":\"android-tv\",\"publicKey\":\"BExjNuO4s953G2E6HHoXNINM1pwaT1_-yyQMY7wN2xV09olsXRTKROADd5HCMAMzJZpxuQHlJYV10QfluKxItCQ\",\"signingKey\":\"BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY\",\"generation\":1,\"allowed\":[\"BL5Xe1szuMPc-oGFhZPYSTggPni6EPh_t1N27qk31Vkq9SvcZBxDreqeNC_8b9v-XIY8n27TBHGZmh0B7PVAZb4\"],\"futureField\":{\"kept\":true}}"
+            }
+        }
+    ],
+    "device_tombstone": {
+        "device": "a1b2c3d4e5f6",
+        "stamp": {
+            "millis": 1761600000000,
+            "counter": 4,
+            "device": "a1b2c3d4e5f6"
+        },
+        "payload": {
+            "signature": "MEUCIQCynECBhoxsDcXIvEVjKGiT2zENEjT1wNdVFmEgUG335AIgON3cRd2MpKoy2Pbzj3lmc52xz0o60wUnq0SOPAIOIsI"
+        },
+        "signing_key": "BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY"
+    },
+    "device_tombstone_refused": [
+        {
+            "name": "a later stamp",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 5,
+                "device": "a1b2c3d4e5f6"
+            },
+            "payload": {
+                "signature": "MEUCIQCynECBhoxsDcXIvEVjKGiT2zENEjT1wNdVFmEgUG335AIgON3cRd2MpKoy2Pbzj3lmc52xz0o60wUnq0SOPAIOIsI"
+            }
+        },
+        {
+            "name": "stamped by another device",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 4,
+                "device": "0f1e2d3c4b5a"
+            },
+            "payload": {
+                "signature": "MEQCIFxmyUN7V7ZcYT1cg3ZdKT-HCNBI49Q4Hc_qPko4RtzvAiAAoxAmnxchVPXDlg6WEPmTtGj6kikDP1kDnzA91l8X2g"
+            }
+        },
+        {
+            "name": "the record's own signature",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 2,
+                "device": "a1b2c3d4e5f6"
+            },
+            "payload": {
+                "signature": "MEUCIQD-7xZQqNyCtosNkj6os4nGSZ35t42A0WxpAQDmIuANygIgDb2OnOsCKSN1vCFlfEJn7XQdObIQV8kFvXKw5B_94ik"
+            }
+        },
+        {
+            "name": "no signature",
+            "device": "a1b2c3d4e5f6",
+            "stamp": {
+                "millis": 1761600000000,
+                "counter": 4,
+                "device": "a1b2c3d4e5f6"
+            },
+            "payload": {}
+        }
+    ],
+    "device_code": {
+        "signing_key": "BAx_zDIcdxGSA9vnmGSQfk8KAZF3id6i1HMVMaUqIuK6wXZtIeRhfXL7vvh9bt8tj4C1JpVuPCwXAfFrfzEVAMY",
+        "code": "PVX-3CD"
+    },
+    "recovery": [
+        {
+            "key_base64url": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            "generation": 1,
+            "text": "000G-0082-0C20-A1G7-104G-M2RC-1M70-Y40H-289H-858P-2WC1-J6GV-3GEH-W7X1-NM"
+        },
+        {
+            "key_base64url": "gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8",
+            "generation": 300,
+            "text": "04P8-10C2-GE28-B1M7-H24R-N2WC-HP78-Z44H-JA9S-95CP-JYC9-K6MV-KJES-X7VV-FR"
+        }
+    ],
+    "recovery_refused": [
+        {
+            "name": "one character changed",
+            "text": "000G-1082-0C20-A1G7-104G-M2RC-1M70-Y40H-289H-858P-2WC1-J6GV-3GEH-W7X1-NM"
+        },
+        {
+            "name": "one group short",
+            "text": "000G-0082-0C20-A1G7-104G-M2RC-1M70-Y40H-289H-858P-2WC1-J6GV-3GEH-W7X1"
+        },
+        {
+            "name": "a zero too many",
+            "text": "000G-0082-0C20-A1G7-104G-M2RC-1M70-Y40H-289H-858P-2WC1-J6GV-3GEH-W7X1-NM0"
+        },
+        {
+            "name": "a letter outside the alphabet",
+            "text": "U00G-0082-0C20-A1G7-104G-M2RC-1M70-Y40H-289H-858P-2WC1-J6GV-3GEH-W7X1-NM"
+        }
+    ]
+}
