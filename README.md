@@ -54,6 +54,9 @@ Without Docker it runs on JDK 25. `./gradlew installDist`, which downloads that 
 
 Then in Yonto Player, Settings → Sync, pick your own server and give it the address.
 
+It keeps everything in one SQLite file, which is all a server for a household needs.
+To keep it in PostgreSQL instead, as Yonto's own server does, set `SYNC_DATABASE_URL` and the two beside it (*Settings*, below): the server makes its tables in an empty database on first start, and needs a role that owns that database.
+
 ## Put it behind TLS
 
 The server speaks plain HTTP.
@@ -93,14 +96,15 @@ So you can turn Sync on once with it unset, list the accounts on the server (`do
 
 ## Accounts
 
-The same binary, given a command, works on the database in `SYNC_DB` instead of serving, and the server never logs an account's id:
+The same binary, given a command, works on its database (`SYNC_DATABASE_URL`, else `SYNC_DB`) instead of serving, and the server never logs an account's id:
 
 - `yonto-sync-server accounts` prints every account's id (the licence id), oldest first.
 - `yonto-sync-server delete-account <licence id>` drops that account with its records, devices, wraps, join requests and any reset waiting; it exits 1 when there is no such account.
   It is the way out when you have lost every device and the recovery key while a device you don't know still holds the key and syncs, since that device cancels a *Start fresh* (below).
 - `yonto-sync-server new-replica` gives the database a new replica id, so every device pushes what it holds again; run it after restoring a backup (*Backups*, below).
+- `yonto-sync-server import-sqlite <file>` copies a SQLite database, accounts, devices, records and replica id, into this one, which must hold no account yet: the way from SQLite to PostgreSQL. Stop the server that uses the file first, and start the new one after, and the devices carry on where they were, pushing nothing again.
 
-All three are safe while the server runs, though a running server goes on answering with the replica id it started with until it starts again.
+The first three are safe while the server runs, though a running server goes on answering with the replica id it started with until it starts again.
 In Docker, run them inside the container: `docker exec yonto-sync /opt/yonto-sync-server/bin/yonto-sync-server accounts`.
 
 ## Starting fresh without the key
@@ -117,7 +121,11 @@ All are environment variables.
 | Variable | Default | What |
 |---|---|---|
 | `PORT` | `8080` | The port it listens on. |
-| `SYNC_DB` | `/data/sync.db` | The SQLite database. Made on first start. |
+| `SYNC_HOST` | unset: every address | The address it listens on. Without Docker, `127.0.0.1` keeps it to a proxy on the same box. In Docker leave it unset, since a container listening on `127.0.0.1` can't be reached through `-p` or from another container, and publish the port on loopback instead (`-p 127.0.0.1:8080:8080`). |
+| `SYNC_DB` | `/data/sync.db` | The SQLite database. Made on first start. Unused with `SYNC_DATABASE_URL`. |
+| `SYNC_DATABASE_URL` | unset: SQLite | A PostgreSQL database to keep everything in instead, `postgresql://host[:port]/database`. Its tables are made on first start. |
+| `SYNC_DATABASE_USER` | unset | With `SYNC_DATABASE_URL`, required: the role it connects as, which owns that database. |
+| `SYNC_DATABASE_PASSWORD_FILE` | unset | With `SYNC_DATABASE_URL`: a file holding that role's password, such as a Docker secret. `SYNC_DATABASE_PASSWORD` gives it directly instead. |
 | `SYNC_ACCOUNTS` | unset: anyone | Licence ids allowed to make an account, comma-separated. |
 | `SYNC_MAX_RECORD_BYTES` | `65536` | The largest one encrypted record may be. |
 | `SYNC_MAX_ACCOUNT_BYTES` | `33554432` (32 MiB) | All of one account's records together. |
@@ -136,14 +144,18 @@ All are environment variables.
 
 ## Keep it up to date with the apps
 
-The apps and the server speak one revision of the contract (`contracts/sync-v1.md`, *Revisions*), which the server names on every answer.
-When Yonto Player updates to a newer revision, a server left on the older one stops working with it: Settings → Sync says the server needs updating, and nothing more is asked of it, joins included, until it is.
-A server newer than the app is the same the other way round, so update the server and the apps together.
+The contract has revisions (`contracts/sync-v1.md`, *Revisions*), and the server names one on every answer.
+This server speaks revisions 2 and 3, and keeps each account at one of them: 2 when it is made, and 3 from the first time a device of it that holds a watch profile pushes, which is what revision 3 is for.
+An app that knows profiles works with an account at either, so updating the server first is always safe.
+An app from before profiles works only with an account at 2: once the household makes a profile, that app says it needs updating and is handed nothing more until it is.
+A server left on revision 2 keeps working until then too: only when a device holds a profile does Settings → Sync say the server needs updating, and nothing more is asked of it, joins included, until it is.
 Rebuild the image (or `installDist`) from the latest release and restart it; the database carries over as it is.
 
 ## Backups
 
-Everything is the one SQLite file (with its `-wal` and `-shm` beside it while it runs).
+In PostgreSQL, back it up with `pg_dump --format=custom`, which is safe while the server runs; to restore one, stop the server, `pg_restore --clean --if-exists` it into the database as its owner, run `yonto-sync-server new-replica`, and start the server again.
+
+In SQLite everything is the one file (with its `-wal` and `-shm` beside it while it runs).
 Back it up with `sqlite3 /data/sync.db ".backup /backups/sync.db"`, which is safe while the server runs, or stop the server and copy the file.
 
 To restore one, stop the server, put the copy in place of `sync.db` (deleting any `sync.db-wal` and `sync.db-shm` beside it), run `yonto-sync-server new-replica`, and start the server again.
@@ -158,6 +170,7 @@ A deletion older than 90 days is forgotten by the server (except a source's, whi
 ./gradlew test
 ```
 
+`test` runs the suite twice, on SQLite and on PostgreSQL (`postgresTest`, against an embedded PostgreSQL each test class starts, so no database needs installing).
 The tests run the server over HTTP against the contract's vectors (`contracts/sync-v1.json`, found by walking up from the working directory) and a fake licensing service.
 
 ## Licence

@@ -14,8 +14,6 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import java.io.Closeable
 import java.io.File
-import java.net.InetAddress
-import java.net.ServerSocket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -74,22 +72,15 @@ const val DEVICE_B = "0f1e2d3c4b5a"
 const val START = 1761700020000L
 val SECRET_B = Key(7)
 
-/**
- * A port free both where the server binds and at 127.0.0.1, where the tests ask. Port 0 alone lets the server's
- * wildcard bind share a port another process holds on IPv4 only (colima's forwards do), and the tests then reach it.
- */
-private fun freeLoopbackPort(): Int = generateSequence { ServerSocket(0).use { it.localPort } }
-    .first { port -> runCatching { ServerSocket(port, 0, InetAddress.getLoopbackAddress()).close() }.isSuccess }
-
 class Harness(
     private val tune: (Config) -> Config = { it },
     val dir: File = Files.createTempDirectory("sync-server").toFile(),
+    val database: Database = TestDatabases.fresh(dir),
 ) : Closeable {
     var now = START
 
     /** Runs each time the server reads its clock, as something happening at that moment. */
     var onClock: () -> Unit = {}
-    val database = File(dir, "sync.db")
     var server = start()
         private set
     private val client = HttpClient.newHttpClient()
@@ -97,8 +88,9 @@ class Harness(
     private fun start() = SyncServer(
         tune(
             Config(
-                port = freeLoopbackPort(),
-                database = database.path,
+                port = 0,
+                host = "127.0.0.1",
+                database = database,
                 accountRequestsPerMinute = 0,
                 addressRequestsPerMinute = 0,
             ),
@@ -233,6 +225,39 @@ class Harness(
         assertEquals(204, reveal(join, secret).status)
         assertEquals(204, allow(join, headers).status)
         return join to secret
+    }
+
+    /** Everything the database holds as text: the SQLite file's bytes, or every value of every table in PostgreSQL. */
+    fun everythingStored(): String = when (val held = database) {
+        is Database.Sqlite -> dir.listFiles()!!.filter { it.name.startsWith("sync.db") }
+            .joinToString("") { it.readBytes().toString(Charsets.ISO_8859_1) }
+        is Database.Postgres -> held.connect().use { connection ->
+            val tables = connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT tablename FROM pg_tables WHERE schemaname = 'public'").use { rows ->
+                    buildList { while (rows.next()) add(rows.getString(1)) }
+                }
+            }
+            tables.joinToString("\n") { table ->
+                connection.createStatement().use { statement ->
+                    statement.executeQuery("SELECT * FROM $table").use { rows ->
+                        buildString {
+                            while (rows.next()) (1..rows.metaData.columnCount).forEach { append(rows.getString(it)).append('|') }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** The rows of [table] whose account (an account's own id, for `account`) is [account]. */
+    fun rows(table: String, account: String): Int {
+        val column = if (table == "account") "id" else "account"
+        return database.connect().use { connection ->
+            connection.prepareStatement("SELECT COUNT(*) FROM $table WHERE $column = ?").use { statement ->
+                statement.setString(1, account)
+                statement.executeQuery().use { it.next(); it.getInt(1) }
+            }
+        }
     }
 
     override fun close() {

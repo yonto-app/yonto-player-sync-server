@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.junit.jupiter.api.Assumptions.assumeFalse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -14,6 +15,7 @@ import kotlin.test.assertTrue
 class AccountTest {
     @Test
     fun `a database from before devices signed their records takes their signing keys`() {
+        assumeFalse(TestDatabases.postgres, "a database from before the schema versions is SQLite's alone")
         val dir = java.nio.file.Files.createTempDirectory("sync-server").toFile()
         java.sql.DriverManager.getConnection("jdbc:sqlite:${java.io.File(dir, "sync.db").path}").use { old ->
             old.createStatement().use {

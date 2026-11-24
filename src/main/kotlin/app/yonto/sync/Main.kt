@@ -12,5 +12,6 @@ fun main(args: Array<String>) {
     Runtime.getRuntime().addShutdownHook(Thread { server.close() })
     val mode = if (config.licensingUrl != null) "licence checks against ${config.licensingUrl}" else "no licence checks"
     val accounts = config.accounts?.let { "${it.size} allowed accounts" } ?: "any account may be made"
-    println("Yonto sync server on port ${server.port}, database ${config.database}, replica ${server.store.replica}; $mode; $accounts")
+    val address = config.host?.let { " at $it" } ?: ""
+    println("Yonto sync server on port ${server.port}$address, database ${config.database}, replica ${server.store.replica}; $mode; $accounts")
 }

@@ -44,7 +44,7 @@ class SyncServer(
     private val executor: ExecutorService = Executors.newVirtualThreadPerTaskExecutor()
     private val http: HttpServer = run {
         limitConnections()
-        HttpServer.create(InetSocketAddress(config.port), 0).apply {
+        HttpServer.create(config.host?.let { InetSocketAddress(it, config.port) } ?: InetSocketAddress(config.port), 0).apply {
             createContext("/") { exchange ->
                 val call = Call(exchange, config, bodies)
                 if (!inFlight.enter(call.client)) call.dropBusy()
@@ -90,11 +90,15 @@ class SyncServer(
 
     private fun handle(call: Call) {
         val exchange = call.exchange
-        exchange.responseHeaders.set(REVISION_HEADER, REVISION.toString())
+        val named = call.header(REVISION_HEADER)?.trim()?.let { it.toIntOrNull() ?: UNREAD_REVISION }
+        // Until the account is read, what the client named where this server speaks it, so no refusal reads as a revision's.
+        exchange.responseHeaders.set(REVISION_HEADER, (named?.takeIf { it in OLDEST_REVISION..REVISION } ?: OLDEST_REVISION).toString())
         try {
             byAddress.take(call.client)?.let { throw Refused(429, "rate_limited", it) }
-            // A client that names another revision is refused before anything is done; one that names none is served.
-            call.header(REVISION_HEADER)?.let { if (it.trim() != REVISION.toString()) throw Refused(409, "revision") }
+            // A revision this server does not speak is refused before anything is done; the account's own is weighed
+            // once the caller is its licensee ([atRevision]).
+            if (named != null && named !in OLDEST_REVISION..REVISION) throw Refused(409, "revision")
+            call.named = named
             route(call)
         } catch (refused: Refused) {
             call.refuse(refused)
@@ -175,7 +179,7 @@ class SyncServer(
 
     private fun licensee(call: Call, counted: Boolean = true): Licensee {
         val account = call.header("Yonto-Account")?.takeIf(Codec::isAccountId) ?: throw Refused(400, "bad_request")
-        if (licensing == null) return Licensee(account, null, null, null)
+        if (licensing == null) return Licensee(account, null, null, null).also { atRevision(call, account) }
         val token = call.header("Yonto-Licence")?.takeIf { it.isNotEmpty() && it.length <= 4096 }
             ?: throw Refused(403, "not_allowed")
         val installId = call.header("Yonto-Install")?.takeIf { it.isNotEmpty() && it.length <= 128 }
@@ -186,8 +190,22 @@ class SyncServer(
             is LicenceAnswer.Unavailable -> throw Refused(503, "unavailable", answer.retryAfterSeconds)
             LicenceAnswer.Refused -> throw Refused(403, "not_allowed")
         }
+        atRevision(call, account)
         if (counted) countRequest(account)
         return Licensee(account, token, installId, install)
+    }
+
+    /**
+     * Serves [call] at the account's revision, or at a newer one this server speaks, which the account takes with that
+     * device's first push; a client that names none is from before revisions, and is served while the account is as
+     * old. Any other is refused and told the account's, before anything else is read or written for it.
+     */
+    private fun atRevision(call: Call, account: String) {
+        val held = store.account(account)?.revision ?: OLDEST_REVISION
+        val named = call.named
+        val served = if (named == null) held.takeIf { it == OLDEST_REVISION } else named.takeIf { it >= held }
+        call.exchange.responseHeaders.set(REVISION_HEADER, (served ?: held).toString())
+        call.revision = served ?: throw Refused(409, "revision")
     }
 
     /** The account as it stands now: a reset waiting out its days that fell due is made first. */
@@ -440,6 +458,8 @@ class SyncServer(
 
     private fun push(call: Call) {
         val keyed = keyed(call)
+        // Only a device of the account, proven, moves it on: a stranger naming it could otherwise shut its older devices out.
+        if (call.revision > keyed.account.revision) store.raise(keyed.account.id, call.revision)
         val body = call.body<Push>()
         if (body.records.size > config.maxBatchRecords) throw Refused(413, "too_large")
         val sizes = body.records.map { record ->
@@ -644,8 +664,10 @@ class SyncServer(
     companion object {
         const val PRODUCT = "yonto"
 
-        /** The revision of `contracts/sync-v1.md` this server speaks (*Revisions*). */
-        const val REVISION = 2
+        /** The newest revision of `contracts/sync-v1.md` this server speaks (*Revisions*), and the oldest, which an account starts at. */
+        const val REVISION = 3
+        const val OLDEST_REVISION = 2
+        private const val UNREAD_REVISION = -1
         const val REVISION_HEADER = "Yonto-Sync-Revision"
         const val AUTH_SCHEME = "Yonto-Sync "
         const val JOIN_SECRET = "Yonto-Join-Secret"
@@ -700,6 +722,10 @@ class SyncServer(
 
 private class Call(val exchange: HttpExchange, private val config: Config, private val bodies: BodyBudget) {
     val method: String = exchange.requestMethod
+
+    /** The revision this request names, if any, and the one it is served at. */
+    var named: Int? = null
+    var revision: Int = SyncServer.OLDEST_REVISION
 
     val address: String = run {
         val forwarded = exchange.requestHeaders.getFirst("X-Forwarded-For")

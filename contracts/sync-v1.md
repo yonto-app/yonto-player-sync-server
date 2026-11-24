@@ -47,7 +47,7 @@ base64url is always without padding.
 - `stamp`: a hybrid logical clock, written by the device that made the edit and never rewritten by anyone.
   Ordered by `millis`, then `counter`, then `device` as a string.
 - `deleted`: a tombstone.
-- `kept`: a tombstone kept for good (a source's, a *merged into* record's and a `device` record's); always false on a live record.
+- `kept`: a tombstone kept for good (a source's, a *merged into* record's, a `device` record's and a `profile` record's); always false on a live record.
 - `sealed`: base64url(iv ‖ ciphertext ‖ tag), AES-256-GCM under the records key, a fresh 12-byte iv each time, a 16-byte tag.
   The associated data is `yonto-sync-v1|record|<id>|<gen>|<millis>.<counter>.<device>|<deleted 0 or 1>|<kept 0 or 1>`, so a server cannot move a stamp, flip a flag or give one record another's id.
 
@@ -69,6 +69,30 @@ That is all it ever decides, and devices decide the same way, so every replica e
 A server can still hold a record back or keep serving an older copy; it cannot make one up, change one, or pass one off as another.
 A device that has synced with no replica for longer than a tombstone is kept (90 days) takes everything the replica holds, drops what it synced before that the replica no longer has, and offers only what it changed since it last synced, so it never brings back a delete the replica has forgotten.
 
+## Watch profiles
+
+Since revision 3 an account can hold watch profiles, each one person's history, resume positions, watch list and recent searches.
+The first profile is every install's own, and its records are the kinds they always were (`history`, `position`, `watchlist`, `search`) under the keys they always had.
+
+| Kind | Key | What |
+|---|---|---|
+| `profile` | `first`, or for any other an id of `p_` and up to 62 more characters, none a `/` | A profile: `name`, `colour` and `made`, the millisecond it was added, and for a junior profile `limit`, the oldest age rating it may watch (0, 7, 10, 13 or 16), and `unrated`, whether it is shown titles with no rating. Its tombstone is `kept`. |
+| `profile.pin` | The profile's | Its PIN: `hash`, as `sha256$<hex salt>$<hex of SHA-256(salt ‖ ":" ‖ PIN)>`. A record of its own, so a rename and a PIN set at once are both kept. |
+| `rating` | The source's key, a space, and the title's id in that source; or the source's key alone | A grown-up's own age rating, the account's: `profileId` (the source), `titleId`, and `age`, one of 0, 7, 10, 13, 16 and 18. Its `parent` is the source. For a title it stands over every other rating the title has; keyed by the source alone, with no `titleId`, it is what that source's titles count as where they say nothing of an age. A record whose key its fields do not make is passed over, and an `age` a device cannot read is 18, never none. |
+| `profile.history`, `profile.position`, `profile.watchlist`, `profile.search` | The profile's id, a `/`, and the key the first profile's record of that thing has | What `history`, `position`, `watchlist` and `search` are to the first profile, to any other, with the same payload and `parent`. |
+
+A device at revision 3:
+
+- keeps each profile's records apart, and trims each profile's history, positions and searches to the caps on their own;
+- syncs a profile's four kinds whenever it syncs the first profile's kind of the same thing, and `profile` and `profile.pin` always;
+- shows nothing of a profile whose `profile` record it does not hold live, and keeps what arrives for one that has not arrived;
+- holds a profile with a `limit` to it: such a profile is shown, and can open, only titles rated at or under the limit, and one with no rating only where `unrated` says so; a `limit` it cannot read is 0, never none, and the first profile takes none;
+- syncs `rating` always, as it does `profile`;
+- deletes every record it holds or is handed for a profile whose `profile` record is a tombstone, so what a device away in that profile pushes later is deleted in turn;
+- as it takes the key of an account that is already there, has the first profile give way: its own `profile` and `profile.pin` records keyed `first`, and equally a delete of either or the lack of either. From then until it has pulled everything a server of the account holds, it offers neither to any replica, whatever it writes to them meanwhile, and takes whatever copy a replica holds of either, a tombstone included, over its own whatever their stamps. Only then is a record that met no copy stamped anew and offered, and a delete or a lack that met none is nothing. A pull from a device on the local network settles nothing, since that device may be behind, so on an account that syncs on the local network alone what gave way waits for the account's copy. The device that allows a join pushes what it holds to the server first. So the account's first profile and its PIN stand, a joining device brings its own only where the account had none, and it cannot take the account's PIN off.
+
+A device from before revision 3 does none of this, which is why an account that holds a profile serves no such device.
+
 ## The server
 
 Every endpoint is under `/v1` and speaks JSON.
@@ -78,18 +102,36 @@ A request that succeeds answers 200 with the body shown, or 204 with none where 
 
 ### Revisions
 
-The contract changes under `/v1` too, and each change one side cannot follow takes the next **revision**; this file is revision 2, which put the joining device's signing key in a join's commitment (*Joining*).
-A server names its revision on every answer, a refusal included, as `Yonto-Sync-Revision: 2`, and a client names its own on every request the same way.
-A server refuses a request naming another revision with 409 `revision` before anything but the per-address rate limit, which it counts first so that refusals cost a flood of them as much as any request; it serves one naming none.
-A device works with a server only at its own revision: it reads an answer that names none as revision 1 when it is JSON, empty, or a refusal this file lists (*Errors*, its status and code both), and anything else at that address as no sync server at all.
-A server older than the device needs updating, and the device asks it nothing more, so it never starts a join it knows will fail; a server newer than the device needs the app updated.
-A device asks for the account (`GET /v1/account`) before it asks to join, so it learns the server's revision before the server holds a request of its own.
+The contract changes under `/v1` too, and each change one side cannot follow takes the next **revision**; this file is revision 3.
+Revision 2 put the joining device's signing key in a join's commitment (*Joining*).
+Revision 3 is watch profiles (*Watch profiles*): the wire is revision 2's, and what changes is what a device must do with a profile's records, so an account is at revision 3 only once it holds one.
 
-On the local network (*On the local network*) anything can advertise the account's tag, answer as a device, and replay a device's sealed record, so a revision is taken only from what a device proved, fresh, for the request it answers: the proven hello (`GET /v1/lan/hello`), whose sealed body carries the answering device's `revision`, left out by a device from before revisions, which is revision 1.
-Every request between two devices names its revision as above, and a device refuses one naming another with 409 `revision` before it reads its body, but for the hello and `GET /v1/lan/device`, answered whatever the asker names, so a device a revision apart is still told which revision the other speaks, and by which device.
-A device that meets one whose proven hello names another revision exchanges nothing more with it and tells the viewer that device, by name, needs updating, or this one, when it is the newer.
+An **account has a revision**, 2 when it is made, and it only goes up.
+A device names a revision on every request as `Yonto-Sync-Revision: 2`: 3 once it holds any record of a profile's kinds or a `rating`, a tombstone included, or has been told the account is at 3 since it started, and 2 until then.
+It is told only by a server's 409 `revision` to a request of its own, or on the local network by what another device sealed under proof, and what it was told it need not keep: the sync that follows brings the records that say so.
+So a household that never makes a profile never has to update a device, or a server of its own, for them.
+
+A server speaks every revision from 2 to its newest, and answers each request with one in the same header, a refusal included:
+
+- A request naming a revision the server does not speak is refused 409 `revision` before anything but the per-address rate limit, which it counts first so that refusals cost a flood of them as much as any request, and the answer names revision 2.
+- Once the caller is the account's licensee, where the server checks a licence, the request is weighed against the account: one naming the account's revision, or a newer one the server speaks, is served and answered at the revision it named; one naming an older revision is refused 409 `revision` and answered with the account's; one naming none is from before revisions, and is served while the account is at 2.
+- The account takes a newer revision with the first `POST /v1/records` a device proves itself for while naming it, and with nothing else: a stranger who names an account cannot move it, and so cannot shut its older devices out.
+
+A device reads an answer that names no revision as revision 1 when it is JSON, empty, or a refusal this file lists (*Errors*, its status and code both), and anything else at that address as no sync server at all.
+An answer naming a revision older than the one the device named is a server that needs updating, and the device asks it nothing more, so it never starts a join it knows will fail; one naming a revision newer than any the device speaks needs the app updated, which is what a device from before profiles is told once its account holds one.
+A 409 `revision` answered with a newer revision the device does speak means the account moved on: nothing was done with the request, and the device asks once more naming that revision.
+No other answer moves a device on, whatever revision it names.
+An account keeps its revision through a reset (*Resetting an account*); one deleted and made again starts at 2.
+A device asks for the account (`GET /v1/account`) before it asks to join, so it learns the account's revision before the server holds a request of its own.
+
+On the local network (*On the local network*) anything can advertise the account's tag, answer as a device, and replay a device's sealed record, so a revision is taken only from what a device proved, fresh, for the request it answers: the proven hello (`GET /v1/lan/hello`), whose sealed body carries the `revision` the answering device names, left out by a device from before revisions, which is revision 1, and the newest it `speaks`, left out by a device from before revision 3, which speaks only the one it names.
+Every request between two devices names its revision as above, and a device refuses one naming a revision older than its own, or newer than any it speaks, with 409 `revision` before it reads its body or any proof, but for the hello and `GET /v1/lan/device`, answered whatever the asker names, so a device a revision apart is still told which revision the other speaks, and by which device; a request naming none is served until the device's account is at 3.
+The header is outside every proof, so no request's header ever changes what a device takes as its account's revision: a request naming a newer revision the device speaks is served, and that is all.
+A device refused 409 `revision` asks that request once more naming the newest revision it speaks, which changes nothing at either end; it is how a device that holds no key yet, and so can be told nothing under proof, joins an account that has moved on.
+A device whose peer's proven hello names a newer revision it speaks takes it as the account's and goes on at it; one whose peer names an older revision but `speaks` its own goes on too, and that peer learns the account's revision from its own next hello.
+A device that meets one whose proven hello shows they share no revision exchanges nothing more with it and tells the viewer that device, by name, needs updating, or this one, when it is the newer.
 Nothing else says a revision there: a refusal, a header or an unproven answer is no answer, and never tells the viewer a device needs updating, changes what is kept about a device, or stops *Turn on* or a join more than a device not answering would; at most a round that met nobody says it could not reach a device rather than that it found none, which both mean it did not sync.
-A device joining on the local network holds no key to prove anything with, so one a revision apart just does not answer it: a device of another revision refuses its request to join before reading it.
+A device joining on the local network holds no key to prove anything with, so one that shares no revision with the device it asks just does not get an answer: that device refuses its request to join before reading it, and a device that speaks no newer revision has nothing to ask again with.
 
 ### Who is asking
 

@@ -1,11 +1,10 @@
 package app.yonto.sync
 
 import java.io.Closeable
-import java.io.File
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSet
+import java.sql.SQLException
 
 data class Account(
     val id: String,
@@ -14,6 +13,8 @@ data class Account(
     val previousVerifier: String?,
     /** When a reset waiting out its days is due, while one is. */
     val resetDue: Long? = null,
+    /** The revision of the contract its devices speak (`contracts/sync-v1.md`, *Revisions*), which only goes up. */
+    val revision: Int = SyncServer.OLDEST_REVISION,
 )
 
 /** A reset asked for without the key (`contracts/sync-v1.md`, *Resetting an account*): the account it would make, and where it stands. */
@@ -89,60 +90,35 @@ sealed interface PushOutcome {
     data object NoAccount : PushOutcome
 }
 
-/** Everything the server keeps, in one SQLite file. One connection, used by one thread at a time. */
-class Store(path: String) : Closeable {
-    private val connection: Connection
+/**
+ * Everything the server keeps, in SQLite or PostgreSQL alike: the SQL here is written once, in the shape both take.
+ * One connection, used by one thread at a time, so every step that reads and then writes is one transaction.
+ */
+class Store(private val database: Database) : Closeable {
+    private var connection: Connection = database.connect()
+    private var closed = false
 
     init {
-        File(path).absoluteFile.parentFile?.mkdirs()
-        connection = DriverManager.getConnection("jdbc:sqlite:$path")
-        connection.createStatement().use {
-            it.execute("PRAGMA journal_mode=WAL")
-            it.execute("PRAGMA foreign_keys=ON")
-            it.execute("PRAGMA busy_timeout=5000")
-        }
         transaction { migrate() }
     }
 
     val replica: String = synchronized(this) { meta("replica")!! }
 
     private fun migrate() {
-        val schema = listOf(
-            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-            """CREATE TABLE IF NOT EXISTS account (
-                id TEXT PRIMARY KEY, generation INTEGER NOT NULL, verifier TEXT NOT NULL,
-                previous_verifier TEXT, created INTEGER NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS device (
-                account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE, id TEXT NOT NULL,
-                platform TEXT NOT NULL, public_key TEXT NOT NULL, secret_hash TEXT NOT NULL,
-                removed INTEGER NOT NULL DEFAULT 0,
-                added INTEGER NOT NULL, unseen INTEGER NOT NULL DEFAULT 0, signing_key TEXT, PRIMARY KEY (account, id))""",
-            """CREATE TABLE IF NOT EXISTS record (
-                account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE, id TEXT NOT NULL,
-                gen INTEGER NOT NULL, millis INTEGER NOT NULL, counter INTEGER NOT NULL, device TEXT NOT NULL,
-                deleted INTEGER NOT NULL, kept INTEGER NOT NULL, sealed TEXT NOT NULL, size INTEGER NOT NULL,
-                seq INTEGER NOT NULL, taken INTEGER NOT NULL, PRIMARY KEY (account, id))""",
-            "CREATE INDEX IF NOT EXISTS record_by_seq ON record (account, seq)",
-            "CREATE INDEX IF NOT EXISTS record_tombstones ON record (deleted, kept, taken)",
-            """CREATE TABLE IF NOT EXISTS wrap (
-                account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE, device TEXT NOT NULL,
-                sender TEXT NOT NULL, sealed TEXT NOT NULL, PRIMARY KEY (account, device))""",
-            """CREATE TABLE IF NOT EXISTS join_request (
-                id TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-                device TEXT NOT NULL, platform TEXT NOT NULL, commitment TEXT NOT NULL, public_key TEXT, nonce TEXT,
-                device_secret_hash TEXT NOT NULL, join_secret_hash TEXT NOT NULL,
-                state TEXT NOT NULL, created INTEGER NOT NULL, opened_by TEXT, opener_key TEXT, opener_nonce TEXT,
-                wrap_sender TEXT, wrap_sealed TEXT, added_device INTEGER NOT NULL DEFAULT 0, signing_key TEXT,
-                wrap_read INTEGER NOT NULL DEFAULT 0)""",
-            "CREATE INDEX IF NOT EXISTS join_by_account ON join_request (account, created)",
-            """CREATE TABLE IF NOT EXISTS account_reset (
-                account TEXT PRIMARY KEY REFERENCES account(id) ON DELETE CASCADE, id TEXT NOT NULL,
-                secret_hash TEXT NOT NULL, verifier TEXT NOT NULL, generation INTEGER NOT NULL,
-                device TEXT NOT NULL, platform TEXT NOT NULL, public_key TEXT NOT NULL, device_secret_hash TEXT NOT NULL,
-                state TEXT NOT NULL, code TEXT NOT NULL, asked INTEGER NOT NULL, after INTEGER, ended INTEGER, checked INTEGER,
-                asker TEXT, signing_key TEXT)""",
-        )
-        connection.createStatement().use { statement -> schema.forEach(statement::execute) }
+        update("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        val held = meta("schema")?.toInt() ?: 0
+        check(held <= SCHEMA.size) { "The database is at schema version $held, newer than this server's ${SCHEMA.size}: run a newer server." }
+        SCHEMA.drop(held).forEach { version -> version.forEach { update(it) } }
+        // A SQLite database from before the versions: the first one's tables were there, some without their newest columns.
+        if (held == 0 && database is Database.Sqlite) addColumnsUnversionedSqliteLacks()
+        setMeta("schema", SCHEMA.size.toString())
+        if (meta("replica") == null) {
+            setMeta("replica", Codec.randomHex(16))
+            setMeta("seq", "0")
+        }
+    }
+
+    private fun addColumnsUnversionedSqliteLacks() {
         if (query("SELECT 1 FROM pragma_table_info('device') WHERE name = 'unseen'") { true }.isEmpty()) {
             update("ALTER TABLE device ADD COLUMN unseen INTEGER NOT NULL DEFAULT 0")
         }
@@ -161,15 +137,8 @@ class Store(path: String) : Closeable {
         if (query("SELECT 1 FROM pragma_table_info('account_reset') WHERE name = 'asker'") { true }.isEmpty()) {
             update("ALTER TABLE account_reset ADD COLUMN asker TEXT")
         }
-        update(
-            """CREATE TABLE IF NOT EXISTS device_install (
-                account TEXT NOT NULL, device TEXT NOT NULL, install TEXT NOT NULL,
-                PRIMARY KEY (account, device, install),
-                FOREIGN KEY (account, device) REFERENCES device(account, id) ON DELETE CASCADE)""",
-        )
-        if (meta("replica") == null) {
-            setMeta("replica", Codec.randomHex(16))
-            setMeta("seq", "0")
+        if (query("SELECT 1 FROM pragma_table_info('account') WHERE name = 'revision'") { true }.isEmpty()) {
+            update("ALTER TABLE account ADD COLUMN revision INTEGER NOT NULL DEFAULT ${SyncServer.OLDEST_REVISION}")
         }
     }
 
@@ -178,12 +147,18 @@ class Store(path: String) : Closeable {
     @Synchronized
     fun account(id: String): Account? =
         query(
-            """SELECT a.id, a.generation, a.verifier, a.previous_verifier, r.after FROM account a
+            """SELECT a.id, a.generation, a.verifier, a.previous_verifier, r.after, a.revision FROM account a
                LEFT JOIN account_reset r ON r.account = a.id AND r.state = 'waiting' WHERE a.id = ?""",
             id,
         ) {
-            Account(it.getString(1), it.getInt(2), it.getString(3), it.getString(4), it.longOrNull(5))
+            Account(it.getString(1), it.getInt(2), it.getString(3), it.getString(4), it.longOrNull(5), it.getInt(6))
         }.firstOrNull()
+
+    /** Moves the account up to [revision]; never down. */
+    @Synchronized
+    fun raise(id: String, revision: Int) {
+        update("UPDATE account SET revision = ? WHERE id = ? AND revision < ?", revision, id, revision)
+    }
 
     /** False when the account already exists. */
     @Synchronized
@@ -229,7 +204,8 @@ class Store(path: String) : Closeable {
         val active = devices(account).filterNot { it.removed }.map { it.id }.toSet()
         to.wraps.filter { it.device in active }.forEach {
             update(
-                "INSERT OR REPLACE INTO wrap (account, device, sender, sealed) VALUES (?, ?, ?, ?)",
+                """INSERT INTO wrap (account, device, sender, sealed) VALUES (?, ?, ?, ?)
+                   ON CONFLICT (account, device) DO UPDATE SET sender = excluded.sender, sealed = excluded.sealed""",
                 account, it.device, it.wrap.from, it.wrap.sealed,
             )
         }
@@ -266,9 +242,14 @@ class Store(path: String) : Closeable {
     fun askReset(reset: Reset): Boolean = transaction {
         if (account(reset.account) == null) return@transaction false
         update(
-            """INSERT OR REPLACE INTO account_reset
+            """INSERT INTO account_reset
                (account, id, secret_hash, verifier, generation, device, platform, public_key, device_secret_hash,
-                state, code, asked, after, ended, checked, asker, signing_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)""",
+                state, code, asked, after, ended, checked, asker, signing_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+               ON CONFLICT (account) DO UPDATE SET id = excluded.id, secret_hash = excluded.secret_hash,
+                verifier = excluded.verifier, generation = excluded.generation, device = excluded.device,
+                platform = excluded.platform, public_key = excluded.public_key, device_secret_hash = excluded.device_secret_hash,
+                state = excluded.state, code = excluded.code, asked = excluded.asked, after = excluded.after,
+                ended = NULL, checked = NULL, asker = excluded.asker, signing_key = excluded.signing_key""",
             reset.account, reset.id, reset.secretHash, reset.verifier, reset.generation, reset.device.id,
             reset.device.platform, reset.device.publicKey, reset.device.secretHash, reset.state, reset.code, reset.asked,
             reset.after, reset.asker, reset.device.signingKey,
@@ -406,7 +387,7 @@ class Store(path: String) : Closeable {
     /** The device proved [install], so it is one of the installs removing it forgets; each is kept, not only the last. */
     @Synchronized
     fun proved(account: String, id: String, install: String) {
-        update("INSERT OR IGNORE INTO device_install (account, device, install) VALUES (?, ?, ?)", account, id, install)
+        update("INSERT INTO device_install (account, device, install) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", account, id, install)
     }
 
     /**
@@ -485,9 +466,11 @@ class Store(path: String) : Closeable {
         val seq = meta("seq")!!.toLong() + 1
         setMeta("seq", seq.toString())
         update(
-            """INSERT OR REPLACE INTO record
-               (account, id, gen, millis, counter, device, deleted, kept, sealed, size, seq, taken)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO record (account, id, gen, millis, counter, device, deleted, kept, sealed, size, seq, taken)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (account, id) DO UPDATE SET gen = excluded.gen, millis = excluded.millis, counter = excluded.counter,
+                device = excluded.device, deleted = excluded.deleted, kept = excluded.kept, sealed = excluded.sealed,
+                size = excluded.size, seq = excluded.seq, taken = excluded.taken""",
             account, record.id, record.gen, record.stamp.millis, record.stamp.counter, record.stamp.device,
             record.deleted.bit, record.kept.bit, record.sealed, record.sealed.length * 3 / 4, seq, now,
         )
@@ -652,10 +635,44 @@ class Store(path: String) : Closeable {
 
     // Plumbing
 
+    /**
+     * Copies everything [source] holds into this database, which must hold no account yet, in one transaction; the
+     * replica id and the sequence come too, so the devices carry on from where they were and push nothing again.
+     */
+    @Synchronized
+    fun copyFrom(source: Store): Int = transaction {
+        check(accountIds().isEmpty()) { "This database already holds accounts: copy only into an empty one." }
+        val rows = COPIED_TABLES.sumOf { table -> copyTable(source, table) }
+        setMeta("replica", source.replica)
+        setMeta("seq", source.meta("seq")!!)
+        rows
+    }
+
+    private fun copyTable(source: Store, table: String): Int = synchronized(source) {
+        source.connection.prepareStatement("SELECT * FROM $table").use { select ->
+            select.executeQuery().use { rows ->
+                val columns = (1..rows.metaData.columnCount).map { rows.metaData.getColumnName(it) }
+                val insert = "INSERT INTO $table (${columns.joinToString()}) VALUES (${columns.joinToString { "?" }})"
+                connection.prepareStatement(insert).use { statement ->
+                    var count = 0
+                    while (rows.next()) {
+                        columns.indices.forEach { statement.setObject(it + 1, rows.getObject(it + 1)) }
+                        statement.addBatch()
+                        // Written as it goes, so a table of full accounts never sits in memory whole.
+                        if (++count % COPY_BATCH_ROWS == 0) statement.executeBatch()
+                    }
+                    if (count % COPY_BATCH_ROWS != 0) statement.executeBatch()
+                    count
+                }
+            }
+        }
+    }
+
     @Synchronized
     override fun close() {
+        closed = true
         if (connection.isClosed) return
-        connection.createStatement().use { it.execute("PRAGMA wal_checkpoint(TRUNCATE)") }
+        if (database is Database.Sqlite) connection.createStatement().use { it.execute("PRAGMA wal_checkpoint(TRUNCATE)") }
         connection.close()
     }
 
@@ -663,7 +680,7 @@ class Store(path: String) : Closeable {
         query("SELECT value FROM meta WHERE key = ?", key) { it.getString(1) }.firstOrNull()
 
     private fun setMeta(key: String, value: String) {
-        update("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value)
+        update("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", key, value)
     }
 
     private fun <T> transaction(block: () -> T): T = synchronized(this) {
@@ -671,10 +688,10 @@ class Store(path: String) : Closeable {
         try {
             block().also { connection.commit() }
         } catch (e: Throwable) {
-            connection.rollback()
+            runCatching { connection.rollback() }
             throw e
         } finally {
-            connection.autoCommit = true
+            runCatching { connection.autoCommit = true }
         }
     }
 
@@ -683,17 +700,87 @@ class Store(path: String) : Closeable {
     }
 
     private fun update(sql: String, vararg args: Any?): Int =
-        connection.prepareStatement(sql).use { bind(it, args); it.executeUpdate() }
+        reconnectingAfter { connection.prepareStatement(sql).use { bind(it, args); it.executeUpdate() } }
 
-    private fun <T> query(sql: String, vararg args: Any?, row: (ResultSet) -> T): List<T> =
+    private fun <T> query(sql: String, vararg args: Any?, row: (ResultSet) -> T): List<T> = reconnectingAfter {
         connection.prepareStatement(sql).use { statement ->
             bind(statement, args)
             statement.executeQuery().use { results ->
                 buildList { while (results.next()) add(row(results)) }
             }
         }
+    }
+
+    /**
+     * A PostgreSQL server that restarted leaves the connection dead: the request that finds it fails, and the next one
+     * gets a new connection, rather than every request failing until this server restarts too.
+     */
+    private fun <T> reconnectingAfter(block: () -> T): T = try {
+        block()
+    } catch (e: SQLException) {
+        if (!closed && database is Database.Postgres && !connection.isValid(CONNECTION_CHECK_SECONDS)) {
+            runCatching { connection.close() }
+            connection = database.connect()
+        }
+        throw e
+    }
 
     private val Boolean.bit get() = if (this) 1 else 0
 
     private fun ResultSet.longOrNull(column: Int): Long? = getLong(column).takeUnless { wasNull() }
+
+    private companion object {
+        const val CONNECTION_CHECK_SECONDS = 2
+        const val COPY_BATCH_ROWS = 500
+
+        /** In the order a copy inserts them, each after the tables its rows refer to. */
+        val COPIED_TABLES = listOf("account", "device", "device_install", "record", "wrap", "join_request", "account_reset")
+
+        /**
+         * Each version's statements, run once, in order, on a database below it; its number is kept in `meta` as `schema`.
+         * A new version is a new entry at the end, written for SQLite and PostgreSQL alike; an old one never changes.
+         * Times are BIGINT, which SQLite reads as its one INTEGER and PostgreSQL as 64 bits.
+         */
+        val SCHEMA: List<List<String>> = listOf(
+            listOf(
+                """CREATE TABLE IF NOT EXISTS account (
+                    id TEXT PRIMARY KEY, generation INTEGER NOT NULL, verifier TEXT NOT NULL,
+                    previous_verifier TEXT, created BIGINT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT ${SyncServer.OLDEST_REVISION})""",
+                """CREATE TABLE IF NOT EXISTS device (
+                    account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE, id TEXT NOT NULL,
+                    platform TEXT NOT NULL, public_key TEXT NOT NULL, secret_hash TEXT NOT NULL,
+                    removed INTEGER NOT NULL DEFAULT 0,
+                    added BIGINT NOT NULL, unseen INTEGER NOT NULL DEFAULT 0, signing_key TEXT, PRIMARY KEY (account, id))""",
+                """CREATE TABLE IF NOT EXISTS record (
+                    account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE, id TEXT NOT NULL,
+                    gen INTEGER NOT NULL, millis BIGINT NOT NULL, counter BIGINT NOT NULL, device TEXT NOT NULL,
+                    deleted INTEGER NOT NULL, kept INTEGER NOT NULL, sealed TEXT NOT NULL, size BIGINT NOT NULL,
+                    seq BIGINT NOT NULL, taken BIGINT NOT NULL, PRIMARY KEY (account, id))""",
+                "CREATE INDEX IF NOT EXISTS record_by_seq ON record (account, seq)",
+                "CREATE INDEX IF NOT EXISTS record_tombstones ON record (deleted, kept, taken)",
+                """CREATE TABLE IF NOT EXISTS wrap (
+                    account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE, device TEXT NOT NULL,
+                    sender TEXT NOT NULL, sealed TEXT NOT NULL, PRIMARY KEY (account, device))""",
+                """CREATE TABLE IF NOT EXISTS join_request (
+                    id TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+                    device TEXT NOT NULL, platform TEXT NOT NULL, commitment TEXT NOT NULL, public_key TEXT, nonce TEXT,
+                    device_secret_hash TEXT NOT NULL, join_secret_hash TEXT NOT NULL,
+                    state TEXT NOT NULL, created BIGINT NOT NULL, opened_by TEXT, opener_key TEXT, opener_nonce TEXT,
+                    wrap_sender TEXT, wrap_sealed TEXT, added_device INTEGER NOT NULL DEFAULT 0, signing_key TEXT,
+                    wrap_read INTEGER NOT NULL DEFAULT 0, asker TEXT)""",
+                "CREATE INDEX IF NOT EXISTS join_by_account ON join_request (account, created)",
+                """CREATE TABLE IF NOT EXISTS account_reset (
+                    account TEXT PRIMARY KEY REFERENCES account(id) ON DELETE CASCADE, id TEXT NOT NULL,
+                    secret_hash TEXT NOT NULL, verifier TEXT NOT NULL, generation INTEGER NOT NULL,
+                    device TEXT NOT NULL, platform TEXT NOT NULL, public_key TEXT NOT NULL, device_secret_hash TEXT NOT NULL,
+                    state TEXT NOT NULL, code TEXT NOT NULL, asked BIGINT NOT NULL, after BIGINT, ended BIGINT, checked BIGINT,
+                    asker TEXT, signing_key TEXT)""",
+                """CREATE TABLE IF NOT EXISTS device_install (
+                    account TEXT NOT NULL, device TEXT NOT NULL, install TEXT NOT NULL,
+                    PRIMARY KEY (account, device, install),
+                    FOREIGN KEY (account, device) REFERENCES device(account, id) ON DELETE CASCADE)""",
+            ),
+        )
+    }
 }

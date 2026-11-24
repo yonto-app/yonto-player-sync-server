@@ -4,6 +4,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import org.junit.jupiter.api.Assumptions.assumeFalse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -147,6 +148,20 @@ class ResetTest {
     }
 
     @Test
+    fun `asking again after a reset ended starts a new one, nothing of the ended one kept`() = Harness().use { h ->
+        h.createAccount()
+        val first = h.ask()
+        h.pull()
+        assertEquals("cancelled", h.poll(first.secret).json.string("state"))
+
+        val second = h.ask(device = "c0ffee000002")
+        assertEquals("not_found", h.poll(first.secret).error)
+        assertEquals("waiting", h.poll(second.secret).json.string("state"))
+        h.pull()
+        assertEquals("cancelled", h.poll(second.secret).json.string("state"), "the key cancels the new one as it did the first")
+    }
+
+    @Test
     fun `the asker may withdraw it`() = Harness().use { h ->
         h.createAccount()
         val asked = h.ask()
@@ -241,6 +256,7 @@ class ResetTest {
 
     @Test
     fun `a database from before resets knew who asked takes the column`() {
+        assumeFalse(TestDatabases.postgres, "a database from before the schema versions is SQLite's alone")
         val dir = java.nio.file.Files.createTempDirectory("sync-server").toFile()
         java.sql.DriverManager.getConnection("jdbc:sqlite:${java.io.File(dir, "sync.db").path}").use { old ->
             old.createStatement().use {

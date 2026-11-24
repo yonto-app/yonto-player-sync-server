@@ -1,8 +1,13 @@
 package app.yonto.sync
 
+import java.net.BindException
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -15,8 +20,7 @@ class ServerTest {
             h.push(*Vectors.records.toTypedArray())
             h.join()
             h.server.close()
-            val files = h.dir.listFiles()!!.filter { it.name.startsWith("sync.db") }
-            val dump = files.joinToString("") { it.readBytes().toString(Charsets.ISO_8859_1) }
+            val dump = h.everythingStored()
 
             assertTrue(Vectors.records.all { dump.contains(it.string("sealed")!!) }, "the dump is the database the records went into")
             val sync = Vectors.json["sync_key_base64url"]!!.toString().trim('"')
@@ -52,7 +56,7 @@ class ServerTest {
             assertEquals("not_found", unknown.error)
             assertEquals("2", unknown.header("Yonto-Sync-Revision"))
 
-            listOf("1", "3", "two").forEach { other ->
+            listOf("1", "4", "two").forEach { other ->
                 val refused = h.push(*Vectors.records.toTypedArray(), headers = h.headers() + ("Yonto-Sync-Revision" to other))
                 assertEquals(409, refused.status)
                 assertEquals("revision", refused.error)
@@ -61,6 +65,43 @@ class ServerTest {
             assertEquals(emptyList(), h.pulled())
             // One from before revisions named none: served.
             assertEquals(200, h.push(*Vectors.records.toTypedArray()).status)
+        }
+
+    @Test
+    fun `an account takes the next revision with a device's first push at it, and then serves no older one`() =
+        Harness().use { h ->
+            val two = h.headers() + ("Yonto-Sync-Revision" to "2")
+            val three = h.headers() + ("Yonto-Sync-Revision" to "3")
+            h.createAccount(extra = mapOf("Yonto-Sync-Revision" to "2"))
+
+            // Asking at 3 is served and moves nothing: only a push does.
+            val asked = h.pull(headers = three)
+            assertEquals(200, asked.status)
+            assertEquals("3", asked.header("Yonto-Sync-Revision"))
+            assertEquals("2", h.pull(headers = two).header("Yonto-Sync-Revision"))
+
+            val pushed = h.push(*Vectors.records.toTypedArray(), headers = three)
+            assertEquals(200, pushed.status)
+            assertEquals("3", pushed.header("Yonto-Sync-Revision"))
+
+            listOf(two, h.headers()).forEach { older ->
+                val refused = h.pull(headers = older)
+                assertEquals(409, refused.status)
+                assertEquals("revision", refused.error)
+                assertEquals("3", refused.header("Yonto-Sync-Revision"))
+            }
+            assertEquals(200, h.pull(headers = three).status)
+        }
+
+    @Test
+    fun `a stranger naming an account at the next revision does not move it`() =
+        Harness().use { h ->
+            h.createAccount()
+            val stranger = (h.headers() - "Yonto-Device-Secret") + ("Yonto-Sync-Revision" to "3")
+
+            assertEquals(401, h.push(*Vectors.records.toTypedArray(), headers = stranger).status)
+
+            assertEquals(200, h.pull(headers = h.headers() + ("Yonto-Sync-Revision" to "2")).status)
         }
 
     @Test
@@ -92,7 +133,7 @@ class ServerTest {
     @Test
     fun `a request of another revision still counts against its address before it is refused`() =
         Harness({ it.copy(addressRequestsPerMinute = 2) }).use { h ->
-            val other = mapOf("Yonto-Sync-Revision" to "3")
+            val other = mapOf("Yonto-Sync-Revision" to "4")
             repeat(2) { assertEquals("revision", h.request("GET", "/v1/account", headers = other).error) }
             assertEquals("rate_limited", h.request("GET", "/v1/account", headers = other).error)
         }
@@ -111,6 +152,17 @@ class ServerTest {
         assertEquals("too_large", h.push(*Vectors.records.toTypedArray(), *Vectors.records.toTypedArray()).error)
     }
 
+    // On macOS a socket bound to 127.0.0.1 after a wildcard-bound server shares its port and answers the tests.
+    @Test
+    fun `a server on loopback keeps its port there from any other socket`() {
+        Harness().use { h ->
+            ServerSocket().use { other ->
+                other.reuseAddress = true
+                assertFailsWith<BindException> { other.bind(InetSocketAddress(InetAddress.getLoopbackAddress(), h.server.port)) }
+            }
+        }
+    }
+
     @Test
     fun `an unknown path is not found`() = Harness().use { h ->
         assertEquals(404, h.request("GET", "/v2/records").status)
@@ -122,6 +174,7 @@ class ServerTest {
         val config = Config.fromEnvironment(
             mapOf(
                 "PORT" to "9000",
+                "SYNC_HOST" to " 127.0.0.1 ",
                 "SYNC_DB" to "/tmp/x.db",
                 "SYNC_ACCOUNTS" to " lic_a, lic_b ,",
                 "YONTO_LICENSING_URL" to "https://account.example/",
@@ -130,13 +183,33 @@ class ServerTest {
             ),
         )
         assertEquals(9000, config.port)
-        assertEquals("/tmp/x.db", config.database)
+        assertEquals("127.0.0.1", config.host)
+        assertEquals(Database.Sqlite("/tmp/x.db"), config.database)
         assertEquals(setOf("lic_a", "lic_b"), config.accounts)
         assertEquals("https://account.example", config.licensingUrl)
         assertEquals(10, config.maxRecordBytes)
         assertTrue(config.behindProxy)
         val defaults = Config.fromEnvironment(emptyMap())
+        assertEquals(Database.Sqlite("/data/sync.db"), defaults.database)
         assertEquals(Config(), defaults)
         assertEquals(null, defaults.accounts)
+        assertEquals(null, defaults.host)
+    }
+
+    @Test
+    fun `SYNC_DATABASE_URL picks PostgreSQL over SYNC_DB, with its password from a file`() {
+        val postgres = mapOf(
+            "SYNC_DB" to "/tmp/x.db",
+            "SYNC_DATABASE_URL" to " postgresql://postgres:5432/yonto_sync ",
+            "SYNC_DATABASE_USER" to "yonto_sync",
+        )
+        val config = Config.fromEnvironment(postgres + ("SYNC_DATABASE_PASSWORD_FILE" to "/run/secrets/pw")) { "secret\n".takeIf { _ -> it == "/run/secrets/pw" }!! }
+
+        assertEquals(Database.Postgres("postgresql://postgres:5432/yonto_sync", "yonto_sync", "secret"), config.database)
+        assertEquals("postgresql://postgres:5432/yonto_sync as yonto_sync", config.database.toString(), "the password is never printed")
+        assertEquals(Database.Postgres("postgresql://postgres:5432/yonto_sync", "yonto_sync", "plain"), Config.fromEnvironment(postgres + ("SYNC_DATABASE_PASSWORD" to "plain")).database)
+        assertFailsWith<IllegalStateException> { Config.fromEnvironment(postgres) }
+        assertFailsWith<IllegalArgumentException> { Config.fromEnvironment(postgres - "SYNC_DATABASE_USER" + ("SYNC_DATABASE_PASSWORD" to "p")) }
+        assertFailsWith<IllegalArgumentException> { Config.fromEnvironment(postgres + mapOf("SYNC_DATABASE_URL" to "mysql://db/sync", "SYNC_DATABASE_PASSWORD" to "p")) }
     }
 }
