@@ -69,6 +69,25 @@ That is all it ever decides, and devices decide the same way, so every replica e
 A server can still hold a record back or keep serving an older copy; it cannot make one up, change one, or pass one off as another.
 A device that has synced with no replica for longer than a tombstone is kept (90 days) takes everything the replica holds, drops what it synced before that the replica no longer has, and offers only what it changed since it last synced, so it never brings back a delete the replica has forgotten.
 
+### How much of a kind syncs
+
+A server bounds an account as a whole (*Records*) and cannot tell kinds apart, so how many of each kind there may be is the devices' to keep.
+
+| Kind | At most | Past it |
+|---|---|---|
+| `history`, `position`, `search` | 100, 200 and 10, and as many of each profile's own | the oldest by stamp are trimmed |
+| `watchlist` | 1000, and as many of each profile's own | a new one is refused where it is added, and one held when a device joins waits |
+| `source` | 200 | a new one waits |
+| `repo`, `plugin` | 50 each | a new one waits |
+| `match`, `rating` | 1000 each | a new one waits |
+| `profile` | 5 | a new one is refused where it is added |
+
+- **Trimmed**: the record becomes a tombstone under its own stamp, so every device writes the same one and an edit made anywhere since beats it. Only records a device syncs are counted. A limit lower on one device would delete on all of them, and one higher is undone by a device that keeps to this one, so these numbers change only with a revision.
+- **Waits**: the record stays on the device that made it, which offers it to no replica until the live records of its kind it knows replicas hold are fewer than the limit, and then offers those that waited longest first. These numbers are each device's own choice of what to offer, so another build may have others.
+
+A device takes whatever a replica holds, however many, and goes on offering its edits and deletes of them, so a limit never removes or freezes what an account has.
+Two devices that add at the same moment can take an account a little past a limit, and nothing undoes that.
+
 ## Watch profiles
 
 Since revision 3 an account can hold watch profiles, each one person's history, resume positions, watch list and recent searches.
@@ -169,7 +188,7 @@ A refusal is an HTTP status with `{"error": "<code>"}`:
 | 409 | `taken` | A refuse of a join whose new device already read its wrap (*Joining*). |
 | 409 | `revision` | The request names another revision than the server's (*Revisions*); the answer names the server's. |
 | 409 | `full` | The account holds as many devices as the server allows (20 unless it says otherwise). |
-| 413 | `too_large` | The body, or the account, is past the server's limit. |
+| 413 | `too_large` | The body, or the account, is past the server's limit; nothing of the request was taken. A device whose push is answered so offers that push's tombstones alone, which make room, and goes on to its next. |
 | 429 | `rate_limited` | Too many requests, in a minute or in flight at once from one address (that one with the connection closed after it), or too many open joins or resets asked, or on a server that checks a licence the licensing service's own limit, passed on; `Retry-After` says when to ask again. |
 | 503 | `unavailable` | The server cannot check the licence just now (on Yonto's: the licensing service is down and the licence has no recent answer, or, for a reset, cannot be asked at all), or holds as many request bodies as it has room for; `Retry-After` says when to ask again. |
 
