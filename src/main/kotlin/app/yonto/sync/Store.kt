@@ -200,6 +200,7 @@ class Store(private val database: Database) : Closeable {
         )
         if (changed == 0) return@transaction false
         update("DELETE FROM record WHERE account = ? AND gen < ?", account, to.generation)
+        recount(account)
         update("DELETE FROM wrap WHERE account = ?", account)
         val active = devices(account).filterNot { it.removed }.map { it.id }.toSet()
         to.wraps.filter { it.device in active }.forEach {
@@ -304,6 +305,7 @@ class Store(private val database: Database) : Closeable {
     private fun make(reset: Reset, now: Long) {
         val account = reset.account
         update("DELETE FROM record WHERE account = ?", account)
+        update("UPDATE account SET records = 0, bytes = 0 WHERE id = ?", account)
         update("DELETE FROM wrap WHERE account = ?", account)
         update("DELETE FROM join_request WHERE account = ?", account)
         update("DELETE FROM device WHERE account = ?", account)
@@ -424,8 +426,12 @@ class Store(private val database: Database) : Closeable {
         now: Long,
     ): PushOutcome = transaction {
         val generation = account(account)?.generation ?: return@transaction PushOutcome.NoAccount
-        val before = accountBytes(account)
-        var count = recordCount(account)
+        val (heldCount, heldBytes) = totals(account)
+        val held = held(account, records.map { it.id }.distinct()).toMutableMap()
+        var count = heldCount
+        var bytes = heldBytes
+        var seq = meta("seq")!!.toLong()
+        val writes = LinkedHashMap<String, Pair<WireRecord, Long>>()
         val taken = mutableListOf<String>()
         val refused = mutableListOf<Refusal>()
         for (record in records) {
@@ -434,53 +440,70 @@ class Store(private val database: Database) : Closeable {
                 refused += Refusal(record.id, reason)
                 continue
             }
-            val held = heldStamp(account, record.id)
-            if (held == null && count >= maxAccountRecords) {
+            val before = held[record.id]
+            if (before == null && count >= maxAccountRecords) {
                 refused += Refusal(record.id, "full")
                 continue
             }
             taken += record.id
-            if (held == null) count++
-            if (held == null || wins(record, held.first, held.second)) write(account, record, now)
+            if (before == null) count++
+            if (before == null || wins(record, before.stamp, before.deleted)) {
+                val size = sizeOf(record)
+                bytes += size - (before?.size ?: 0)
+                held[record.id] = Held(record.stamp, record.deleted, size)
+                writes[record.id] = record to ++seq
+            }
         }
-        val after = accountBytes(account)
-        if (after > before && after > maxAccountBytes) {
-            connection.rollback()
-            PushOutcome.AccountFull
-        } else {
-            PushOutcome.Done(taken, refused)
-        }
+        if (bytes > heldBytes && bytes > maxAccountBytes) return@transaction PushOutcome.AccountFull
+        if (writes.isEmpty()) return@transaction PushOutcome.Done(taken, refused)
+        write(account, writes.values, now)
+        setMeta("seq", seq.toString())
+        update("UPDATE account SET records = ?, bytes = ? WHERE id = ?", count, bytes, account)
+        PushOutcome.Done(taken, refused)
     }
+
+    private class Held(val stamp: Stamp, val deleted: Boolean, val size: Long)
 
     private fun wins(incoming: WireRecord, heldStamp: Stamp, heldDeleted: Boolean): Boolean {
         val order = incoming.stamp.compareTo(heldStamp)
         return order > 0 || (order == 0 && incoming.deleted && !heldDeleted)
     }
 
-    private fun heldStamp(account: String, id: String): Pair<Stamp, Boolean>? =
-        query("SELECT millis, counter, device, deleted FROM record WHERE account = ? AND id = ?", account, id) {
-            Stamp(it.getLong(1), it.getLong(2), it.getString(3)) to (it.getInt(4) != 0)
-        }.firstOrNull()
+    private fun held(account: String, ids: List<String>): Map<String, Held> = ids.chunked(IN_CHUNK).flatMap { chunk ->
+        query("SELECT id, millis, counter, device, deleted, size FROM record WHERE account = ? AND id IN (${marks(chunk.size)})", account, *chunk.toTypedArray()) {
+            it.getString(1) to Held(Stamp(it.getLong(2), it.getLong(3), it.getString(4)), it.getInt(5) != 0, it.getLong(6))
+        }
+    }.toMap()
 
-    private fun write(account: String, record: WireRecord, now: Long) {
-        val seq = meta("seq")!!.toLong() + 1
-        setMeta("seq", seq.toString())
+    private fun sizeOf(record: WireRecord): Long = record.sealed.length * 3L / 4
+
+    private fun write(account: String, records: Collection<Pair<WireRecord, Long>>, now: Long) = batch(
+        """INSERT INTO record (account, id, gen, millis, counter, device, deleted, kept, sealed, size, seq, taken)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (account, id) DO UPDATE SET gen = excluded.gen, millis = excluded.millis, counter = excluded.counter,
+            device = excluded.device, deleted = excluded.deleted, kept = excluded.kept, sealed = excluded.sealed,
+            size = excluded.size, seq = excluded.seq, taken = excluded.taken""",
+        records.map { (record, seq) ->
+            arrayOf<Any?>(
+                account, record.id, record.gen, record.stamp.millis, record.stamp.counter, record.stamp.device,
+                record.deleted.bit, record.kept.bit, record.sealed, sizeOf(record), seq, now,
+            )
+        },
+    )
+
+    /** The account's record count and their bytes, kept beside it as records come and go. */
+    @Synchronized
+    fun totals(account: String): Pair<Int, Long> =
+        query("SELECT records, bytes FROM account WHERE id = ?", account) { it.getInt(1) to it.getLong(2) }.firstOrNull() ?: (0 to 0L)
+
+    // The account's totals counted again: after a step that deletes too many of its records to count one by one.
+    private fun recount(account: String) {
         update(
-            """INSERT INTO record (account, id, gen, millis, counter, device, deleted, kept, sealed, size, seq, taken)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT (account, id) DO UPDATE SET gen = excluded.gen, millis = excluded.millis, counter = excluded.counter,
-                device = excluded.device, deleted = excluded.deleted, kept = excluded.kept, sealed = excluded.sealed,
-                size = excluded.size, seq = excluded.seq, taken = excluded.taken""",
-            account, record.id, record.gen, record.stamp.millis, record.stamp.counter, record.stamp.device,
-            record.deleted.bit, record.kept.bit, record.sealed, record.sealed.length * 3 / 4, seq, now,
+            """UPDATE account SET records = (SELECT COUNT(*) FROM record WHERE record.account = account.id),
+                bytes = (SELECT COALESCE(SUM(size), 0) FROM record WHERE record.account = account.id) WHERE id = ?""",
+            account,
         )
     }
-
-    private fun recordCount(account: String): Int =
-        query("SELECT COUNT(*) FROM record WHERE account = ?", account) { it.getInt(1) }.first()
-
-    private fun accountBytes(account: String): Long =
-        query("SELECT COALESCE(SUM(size), 0) FROM record WHERE account = ?", account) { it.getLong(1) }.first()
 
     /** Up to [limit] copies changed after [since], in the order they were taken, and whether more follow. */
     @Synchronized
@@ -504,13 +527,30 @@ class Store(private val database: Database) : Closeable {
 
     @Synchronized
     fun forget(account: String, ids: List<String>) = transaction {
-        ids.forEach { update("DELETE FROM record WHERE account = ? AND id = ?", account, it) }
+        ids.distinct().chunked(IN_CHUNK).forEach { chunk ->
+            val args = arrayOf<Any?>(account, *chunk.toTypedArray())
+            val (count, bytes) = query("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM record WHERE account = ? AND id IN (${marks(chunk.size)})", *args) {
+                it.getInt(1) to it.getLong(2)
+            }.first()
+            if (count == 0) return@forEach
+            update("DELETE FROM record WHERE account = ? AND id IN (${marks(chunk.size)})", *args)
+            update("UPDATE account SET records = records - ?, bytes = bytes - ? WHERE id = ?", count, bytes, account)
+        }
     }
 
     /** Drops tombstones taken more than [keepMillis] before [now], except kept ones. */
     @Synchronized
-    fun pruneTombstones(now: Long, keepMillis: Long): Int =
-        update("DELETE FROM record WHERE deleted = 1 AND kept = 0 AND taken < ?", now - keepMillis)
+    fun pruneTombstones(now: Long, keepMillis: Long): Int = transaction {
+        val before = now - keepMillis
+        val pruned = query(
+            "SELECT account, COUNT(*), COALESCE(SUM(size), 0) FROM record WHERE deleted = 1 AND kept = 0 AND taken < ? GROUP BY account",
+            before,
+        ) { Triple(it.getString(1), it.getInt(2), it.getLong(3)) }
+        pruned.forEach { (account, count, bytes) ->
+            update("UPDATE account SET records = records - ?, bytes = bytes - ? WHERE id = ?", count, bytes, account)
+        }
+        update("DELETE FROM record WHERE deleted = 1 AND kept = 0 AND taken < ?", before)
+    }
 
     // Joins
 
@@ -699,6 +739,18 @@ class Store(private val database: Database) : Closeable {
         args.forEachIndexed { i, arg -> statement.setObject(i + 1, arg) }
     }
 
+    private fun batch(sql: String, rows: List<Array<out Any?>>) {
+        if (rows.isEmpty()) return
+        reconnectingAfter {
+            connection.prepareStatement(sql).use { statement ->
+                rows.forEach { bind(statement, it); statement.addBatch() }
+                statement.executeBatch()
+            }
+        }
+    }
+
+    private fun marks(count: Int): String = List(count) { "?" }.joinToString()
+
     private fun update(sql: String, vararg args: Any?): Int =
         reconnectingAfter { connection.prepareStatement(sql).use { bind(it, args); it.executeUpdate() } }
 
@@ -732,6 +784,9 @@ class Store(private val database: Database) : Closeable {
     private companion object {
         const val CONNECTION_CHECK_SECONDS = 2
         const val COPY_BATCH_ROWS = 500
+
+        /** The most ids one `IN` list names: under SQLite's and PostgreSQL's limits on a statement's parameters. */
+        const val IN_CHUNK = 500
 
         /** In the order a copy inserts them, each after the tables its rows refer to. */
         val COPIED_TABLES = listOf("account", "device", "device_install", "record", "wrap", "join_request", "account_reset")
@@ -780,6 +835,13 @@ class Store(private val database: Database) : Closeable {
                     account TEXT NOT NULL, device TEXT NOT NULL, install TEXT NOT NULL,
                     PRIMARY KEY (account, device, install),
                     FOREIGN KEY (account, device) REFERENCES device(account, id) ON DELETE CASCADE)""",
+            ),
+            // Each account's record count and bytes, kept as records come and go, so a push counts none of them.
+            listOf(
+                "ALTER TABLE account ADD COLUMN records BIGINT NOT NULL DEFAULT 0",
+                "ALTER TABLE account ADD COLUMN bytes BIGINT NOT NULL DEFAULT 0",
+                """UPDATE account SET records = (SELECT COUNT(*) FROM record WHERE record.account = account.id),
+                    bytes = (SELECT COALESCE(SUM(size), 0) FROM record WHERE record.account = account.id)""",
             ),
         )
     }

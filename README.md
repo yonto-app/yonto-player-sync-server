@@ -149,7 +149,8 @@ This server speaks revisions 2 and 3, and keeps each account at one of them: 2 w
 An app that knows profiles works with an account at either, so updating the server first is always safe.
 An app from before profiles works only with an account at 2: once the household makes a profile, that app says it needs updating and is handed nothing more until it is.
 A server left on revision 2 keeps working until then too: only when a device holds a profile does Settings → Sync say the server needs updating, and nothing more is asked of it, joins included, until it is.
-Rebuild the image (or `installDist`) from the latest release and restart it; the database carries over as it is.
+Rebuild the image (or `installDist`) from the latest release and restart it; the database carries over, brought up to the new schema as the server starts.
+A server older than its schema refuses to start on it, so back it up before an upgrade that changes the schema: going back past one means restoring that backup, with `new-replica` (*Backups*, below).
 
 ## Backups
 
